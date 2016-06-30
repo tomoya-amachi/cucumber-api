@@ -1,4 +1,5 @@
-require 'cucumber-api/response'
+# coding: utf-8
+require_relative './response'
 require 'rest-client'
 require 'json-schema'
 
@@ -51,6 +52,7 @@ When(/^I set request body from "(.*?).(yml|json)"$/) do |filename, extension|
   end
 end
 
+
 When(/^I grab "(.*?)" as "(.*?)"$/) do |json_path, place_holder|
   if @response.nil?
     raise 'No response found, a request need to be made first before you can grab response'
@@ -58,50 +60,6 @@ When(/^I grab "(.*?)" as "(.*?)"$/) do |json_path, place_holder|
 
   @grabbed = {} if @grabbed.nil?
   @grabbed[%/#{place_holder}/] = @response.get json_path
-end
-
-When(/^I send a (GET|POST|PATCH|PUT|DELETE) request to "(.*?)" with:$/) do |method, url, params|
-  unless params.hashes.empty?
-    query = params.hashes.first.map{|key, value| %/#{key}=#{value}/}.join("&")
-    url = url.include?('?') ? %/#{url}&#{query}/ : %/#{url}?#{query}/
-  end
-  steps %Q{
-      When I send a #{method} request to "#{url}"
-    }
-end
-
-When(/^I send a (GET|POST|PATCH|PUT|DELETE) request to "(.*?)"$/) do |method, url|
-  request_url = URI.encode resolve(url)
-  if 'GET' == %/#{method}/ and $cache.has_key? %/#{request_url}/
-    @response = $cache[%/#{request_url}/]
-    @headers = nil
-    @body = nil
-    @grabbed = nil
-    next
-  end
-
-  @headers = {} if @headers.nil?
-  begin
-    case method
-      when 'GET'
-        response = RestClient.get request_url, @headers
-      when 'POST'
-        response = RestClient.post request_url, @body, @headers
-      when 'PATCH'
-        response = RestClient.patch request_url, @body, @headers
-      when 'PUT'
-        response = RestClient.put request_url, @body, @headers
-      else
-        response = RestClient.delete request_url, @headers
-    end
-  rescue RestClient::Exception => e
-    response = e.response
-  end
-  @response = CucumberApi::Response.create response
-  @headers = nil
-  @body = nil
-  @grabbed = nil
-  $cache[%/#{request_url}/] = @response if 'GET' == %/#{method}/
 end
 
 Then(/^the response status should be "(\d+)"$/) do |status_code|
@@ -156,4 +114,106 @@ def resolve url
     @grabbed.each { |key, value| url = url.gsub /\{#{key}\}/, %/#{value}/ }
   end
   url
+end
+
+
+When(/^I send a (GET|POST|PATCH|PUT|DELETE) request to "(.*?)" with:$/) do |method, url, params|
+  unless params.hashes.empty?
+    query = params.hashes.first.map{|key, value| %/#{key}=#{value}/}.join("&")
+    if url.include?('?')
+      url = url+"&"+query
+    else
+      url = url+"?"+query
+    end
+  end
+
+  steps %Q{
+      When I send a #{method} request to "#{url}"
+    }
+end
+
+
+When(/^I send a (GET|POST|PATCH|PUT|DELETE) request to "(.*?)"$/) do |method, url|
+  # ログインしてセッションが作成されていれば、{account_id}に自分のIDを入れる
+  if @account_id.nil?
+    resolveUrl = URI.encode resolve(url)
+  else
+    resolveUrl = URI.encode resolve(url.sub(/{account_id}/,@account_id.to_s))
+  end
+  request_url = $BASEURL+resolveUrl
+
+  @headers = {} if @headers.nil?
+  begin
+    case method
+      when 'GET'
+        response = RestClient.get request_url, @headers
+      when 'POST'
+        response = RestClient.post request_url, @body, @headers
+      when 'PATCH'
+        response = RestClient.patch request_url, @body, @headers
+      when 'PUT'
+        response = RestClient.put request_url, @body, @headers
+      else
+        response = RestClient.delete request_url, @headers
+    end
+  rescue RestClient::Exception => e
+    response = e.response
+  end
+
+  @response = CucumberApi::Response.create response
+  @headers = nil
+  @body = nil
+  @grabbed = nil
+  $cache[%/#{request_url}/] = @response if 'GET' == %/#{method}/
+end
+
+Then(/^"(.*?)" should be equal "(.*?)"$/) do |key, value|
+  if @grabbed.nil?
+    raise %/Undefined key: '#{key}'/
+  else
+    # 型比較でboolean型などがあるので、jsonの値を文字列に変換して比較
+    raise %/Expect #{value} but was #{@grabbed[key]}/ if @grabbed[key].to_s != value
+  end
+end
+
+# セッションを保持した状態での接続
+Given /^I am logged in as:$/ do |params|
+  # session_idとして保存されるIDをランダムに生成
+  if $current_session.nil?
+    $current_session = (0...8).map { (65 + rand(26)).chr }.join
+  end
+
+  # 指定されたparameterでログインをテスト
+  # When I am logged in as:
+  #   | mail     | test@mail.com |
+  #   | password | samplepass    |
+  @body = {}
+  params.rows_hash.each do |key, value|
+    p_value = value
+    @grabbed.each { |k, v| p_value = v if value == %/{#{k}}/ } unless @grabbed.nil?
+    p_value = File.new %-#{Dir.pwd}/#{p_value.sub 'file://', ''}- if %/#{p_value}/.start_with? "file://"
+    @body[%/#{key}/] = p_value
+  end
+
+  @headers = {
+              :Accept => 'application/json',
+              :'Content-Type' => 'application/json',
+              :Cookie => $SESSION_NAME+'='+$current_session,
+  }
+
+  # POSTでログインJSONレスポンスをパースしてアカウントIDを指定する
+  response = RestClient.post $BASEURL+$LOGIN_ENDPOINT, @body, @headers
+  @response = CucumberApi::Response.create response
+  parsed = JSON.parse @response
+
+  # 返却データから、本人のアカウントIDを保存する
+  @account_id = parsed['id']
+  @body = nil
+
+  # 次回のリクエストでも、同じセッションで接続する(ログイン状態とみなされる)
+  @headers = {
+              :Accept => 'application/json',
+              :'Content-Type' => 'application/json',
+              :Cookie => $SESSION_NAME+'='+$current_session,
+  }
 end
