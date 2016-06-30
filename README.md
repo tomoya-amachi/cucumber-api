@@ -8,6 +8,25 @@ Inspired by [cucumber-api-steps](https://github.com/jayzes/cucumber-api-steps).
 
 Checkout [sample](/features/sample.feature) to see **cucumber-api** in action.
 
+
+## cucumber-apiをAPIプロジェクトにカスタマイズしたものです。
+できるようになったこと
+- APIのドメインを指定 (指定したドメイン以外へのrequestは不可)
+- セッション情報の保持
+
+ドメイン指定やセッション名などの設定は、env.rbで行います。
+
+### ログイン状態でのセッションの保持
+```
+  Scenario: Get own account info
+    When I am logged in as:
+      | mail | sample@hoge.com |
+      | password | pass |
+    # ↑でログインしたセッションで、以下のリクエストを実行
+    And I send a GET request to "accounts/me"
+    Then the response status should be "200"
+```
+
 ## Installation
 
 Add `cucumber-api` gem to your `Gemfile`:

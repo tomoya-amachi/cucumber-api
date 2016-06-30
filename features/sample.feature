@@ -1,6 +1,5 @@
 # https://github.com/HackerNews/API
 Feature: Hacker News REST API validation
-
   Scenario: Verify top stories JSON schema
     When I send and accept JSON
     And I send a GET request to "topstories.json?print=pretty"

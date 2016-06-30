@@ -3,7 +3,8 @@ require 'cucumber-api'
 
 # チェックするドメインを指定
 # cucumber DOMAIN=http://sample.com/v1 と指定すれば、ドメインを変更できる
-ENV['DOMAIN'] ||= 'http://localhost:8080/v1/'
+# ENV['DOMAIN'] ||= 'http://localhost:8080/v1/'
+ENV['DOMAIN'] ||= 'https://hacker-news.firebaseio.com/v0/'
 $BASEURL = ENV['DOMAIN']
 
 # ログインをする場合、ログイン先のendpointを指定
